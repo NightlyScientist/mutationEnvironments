@@ -3,18 +3,17 @@
 
 A search through two parameters can be generated using the following command
 
-> python src/routines/generate_parameter_space_search.py --numberTrials 100 --dims 1000,1000 --savepath workspace/experiments/phase_diagram_no_mutations_phi_0.25 --mutation 0.000 --selection 0.0 --intensity 10 --radius 10 --density 0.25 --overwrite --parameters selection,intensity --intervals_1 0,0.01,0.1 --intervals_2 0,0.5,6 --model src/base/ --environments 20 --standing_variation
-To execute a simulation through a single parameter search:
+>  python src/routines/explore_parameter_space.py --environments 5 --numberTrials 500 --numberSamples 50 --dims 1000.0,1000.0 --mutation 0.0 --selection 0.1 --compensation 0.0 --intensity 19.0 --radius 10 --density 0.25 --env_type uniform --initial_type uniform --standing_variation --overwrite --heatmap --parameters intensity,selection --intervals_1 0,1,7 --intervals_2 0.0,0.02,0.1 --model src/base/ --savepath workspace/revised_simulations/
 
 A single simulation across one variable can be perfomed using 
 
-> sbatch src/scripts/slurm_main.sh --model src/base/ --initial_type alt --numberTrials 500 --dims 500,500 --mutation 0.01 --intensity 4 --density 0  --selection 0.1 --radius 5 --savepath workspace/simulation_data/stable_density --parameter selection --intervals 0,0.025,0.5 --env_type uniform --flags standing_variation
+>  python src/routines/main.py --env_type circle --separation 100 --model src/base/ --initial_type alt --environments 1 --numberTrials 500 --numberSamples 50 --dims 1000.0,1000.0 --selection 0.04 --compensation 0.0 --intensity 6.0 --mutation 0.0 --savepath workspace/revised_individual_sims/ --parameter separation --intervals=10,20,200 --num_threads 4 --density 0.25 --radius 10 --background --overwrite --heatmap
 
 A list of simulation options and their descriptions can be found using
 
-> python src/processing/generate_parameter_space_search.py --help
+> python src/routines/explore_parameter_space.py --help
 
-Source code used to generate article figures are contained in the [figures/](./figures/) directory. Analysis is performed by providing a list of directories (input variable) containing the simluation data from [generate_parameter_space_search.py](./src/routines/generate_parameter_space_search.py). If all data are saved in, for example, workarea/experiments/, the figure scripts will automatically scan and collect all simulation data and proceed with the analysis. Commands used to generate the datasets are located in the `datasets.md` file. These commmands will source the parameter space search routine to submit many jobs to the slurm queue. The output location is given by `--savepath` option, and are named based on which figure they're used to generate. 
+Source code used to generate article figures are contained in the [figures/](./figures/) directory. Analysis is performed by providing a list of directories (input variable) containing the simluation data from [explore_parameter_space.py](./src/routines/explore_parameter_space.py). If all data are saved in, for example, workarea/experiments/, the figure scripts will automatically scan and collect all simulation data and proceed with the analysis. Commands used to generate the datasets are located in the `datasets.md` file. These commmands will source the parameter space search routine to submit many jobs to the slurm queue. The output location is given by `--savepath` option, and are named based on which figure they're used to generate. 
 
 
 Additionally, individual simulations can be executed using main.jl; a list of command-line options can be displayed using
@@ -31,4 +30,4 @@ If using the Conda package manager for python, the python dependencies can be in
 
 > conda create --name <env_name> --file requirements.txt
 
-While the script [generate_parameter_space_search.py](./src/routines/generate_parameter_space_search.py) to generate simulations works best with the [slurm workload manager](https://slurm.schedmd.com/overview.html) installed, the script will check for an existing slurm installion and will fallback to executing sequentially via bash if no slurm installation is found.
+While the script [explore_parameter_space.py](./src/routines/explore_parameter_space.py) to generate simulations works best with the [slurm workload manager](https://slurm.schedmd.com/overview.html) installed, the script will check for an existing slurm installion and will fallback to executing sequentially via bash if no slurm installation is found.
