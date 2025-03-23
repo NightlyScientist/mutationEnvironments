@@ -1,0 +1,18 @@
+# ignore mac files
+.DS_Store/
+.DS_Store
+
+# ignore python files
+__pycache__/
+.ipynb_checkpoints/
+
+# ignore vs code 
+.vscode/
+.empty/
+
+# ignore workarea
+workspace
+workspace/
+
+# workspace paths file
+.workspace_env

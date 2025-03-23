@@ -7,14 +7,13 @@ function simple_theme!()
 
   theme = Theme(;
     Figure=(backgroundcolor = :transparent),
-    Heatmap=(colormap=amp, lowclip=:transparent),
+    Heatmap=(colormap=ColorSchemes.amp, lowclip=:transparent),
     Scatter=(markersize=20, colormap=cmap),
   )
   update_theme!(theme)
   return theme
 end
 
-@deprecate customTheme!(fs=28) default_theme!(fs=28)
 customTheme!(fs=28) = default_theme!(fs)
 
 function scalebar!(ax, position; width=100, height=10, fontsize=28, color=:white, offset=20)

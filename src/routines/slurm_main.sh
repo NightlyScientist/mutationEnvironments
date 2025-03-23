@@ -13,6 +13,7 @@ pararser() {
     radius=${radius:-"10"}
     intensity=${intensity:-"0.0"}
     
+    compensation=${compensation:-"0.0"}
     selection=${selection:-"0.0"}
     mutation=${mutation:-"0.0"}
     
@@ -28,9 +29,10 @@ pararser() {
     env_type=${env_type:-"uniform"}
     separation=${separation:-"100"}
 
-    savepath=${savepath:-"workspace/sims"}
+    savepath=${savepath:-"workspace/simulations"}
     model=${model:-"src/base/"}
     flags=${flags:-""}
+    model_flags=${model_flags:-" "}
 
     # Assign the values given by the user
     while [ $# -gt 0 ]; do
@@ -42,17 +44,10 @@ pararser() {
     done
 }
 
-
 # get cli options
 pararser $@
 
 echo "Running your script now"
-echo
-
-echo "selection: $selection | intensity: $intensity | mutation: $mutation"
-echo "parameter:$parameter | intervals: $intervals"
-echo "numberTrials: $numberTrials"
-
 echo
 
 # parse extra flags that evaluate to 'store_true'
@@ -61,9 +56,15 @@ for flg in "${ADDR[@]}"; do
   extra_flags+=" --$flg" 
 done
 
-echo $extra_flags
+echo "Extra flags: $extra_flags"
+echo "model_flags: $model_flags"
 
-python src/routines/main.py --env_type $env_type --separation $separation --model $model --initial_type $initial_type --environments $environments --numberTrials $numberTrials --numberSamples $numberSamples --dims $dims --selection $selection --intensity $intensity --mutation $mutation --savepath $savepath --parameter $parameter --intervals=$intervals --num_threads 4 --density $density --radius $radius --background $extra_flags
+if [ "$model_flags" == "" ]; then
+  model_flags_cmd=""
+else
+  model_flags_cmd="--model_flags $model_flags"
+fi
 
+python src/routines/main.py --env_type $env_type --separation $separation --model $model --initial_type $initial_type --environments $environments --numberTrials $numberTrials --numberSamples $numberSamples --dims $dims --selection $selection --compensation $compensation --intensity $intensity --mutation $mutation --savepath $savepath --parameter $parameter --intervals=$intervals --num_threads 4 --density $density --radius $radius --background $extra_flags $model_flags_cmd
 
 date

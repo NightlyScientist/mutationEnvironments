@@ -99,7 +99,7 @@ function traverse(start::UInt32, tree::Dict{UInt32,TreeNode})
   return track, nodes
 end
 
-function treeMatrix(tree::Dict{UInt32,TreeNode})
+function treeMatrix(tree::Dict{UInt32,TreeNode}, sources)
   maxLength = 1
   treeMatrix = zeros(UInt32, 10, 100)
   for i in eachindex(sources)

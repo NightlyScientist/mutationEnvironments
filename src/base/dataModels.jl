@@ -1,6 +1,8 @@
 using DataStructures
 using NearestNeighbors
 using StatsBase
+import StaticArrays: SVector
+include("../common/indexTools.jl")
 
 mutable struct DataModel{T}
   data::Vector{T}
@@ -8,7 +10,8 @@ mutable struct DataModel{T}
   DataModel{T}(func) where {T} = new{T}(Vector{T}(), func)
 end
 
-resetModels!(dm) = for symb in keys(dm)
+resetModels!(dm) =
+  for symb in keys(dm)
     empty!(dm[symb].data)
   end
 
@@ -46,7 +49,7 @@ end
 measures the mean and variance of the front height
 """
 function frontMotion(active, graph, time)
-  front = vcat(active[1].data, active[2].data, active[3].data)
+  front = reduce(vcat, getfield.(active, :data))
   front_y = getfield.(graph[front], :y)
   m, v = mean_and_var(front_y)
   return (time, m, v, extrema(front_y)...)
@@ -56,7 +59,7 @@ end
 measures the mean and variance of the sector size at the front, and number of surviving roots
 """
 function sectorCoarsening(active, graph, time)
-  front = vcat(active[1].data, active[2].data, active[3].data)
+  front = reduce(vcat, getfield.(active, :data))
   uniqueElems = countmap(getfield.(graph[front], :ID_2))
   nroots = length(keys(uniqueElems))
   m, v = mean_and_var(values(uniqueElems))
@@ -66,20 +69,20 @@ end
 """
 take snapshots of the front to later make an animation
 """
-function growAnimation(active, graph, time)
+function growAnimation(active, graph, time; phylo=false)
   lineages = Int32[]
-  if time > 0.0
-    front = vcat(active[1].data, active[2].data, active[3].data, active[4].data)
+  if time > 0.0 && phylo
+    front = reduce(vcat, getfield.(active, :data))
     phylogeny, _ = genealogy(graph, front)
     lineages = collect(keys(phylogeny))
   end
-  ID_1 = getfield.(graph, :ID_2)
-  ID_2 = getfield.(graph, :ID_3)
-  return (time, ID_1, ID_2, lineages)
+  ID_2 = getfield.(graph, :ID_2)
+  ID_3 = getfield.(graph, :ID_3)
+  return (time, ID_2, ID_3, lineages)
 end
 
 # using P.B.C get the arc distance between two points
-""" 
+"""
 enforce periodic boundary conditions along X
 """
 function periodicBoundaries(halfwidth::Int, width::Int)

@@ -1,41 +1,38 @@
 # %%
-basePath = input()
-
-# %%
+import importlib
 import pandas as pd
 import pyarrow.feather as feather
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import stats
-import os
-import warnings
 import matplotlib as mpl
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.interpolate import interp1d
+import common.dataAPI as dataAPI
+import common.datatables as dataAPIExtensions
 
-#sns.set_theme(style="white")
-imgPath = os.path.join(basePath, "images")
-if not os.path.exists(imgPath):
-    os.makedirs(imgPath)
+# reload modules (helpful for debugging)
+importlib.reload(dataAPI)
+
+workspace_paths = dataAPI.fetchWorkspaceEnv("../../")
+print(workspace_paths.keys())
+print(workspace_paths["top_level_path"])
+
+ensemble_paths = dataAPI.fetchEnsemblePaths(workspace_paths["top_level_path"])
+# pick one of the ensembles using 'example_ensemble_path'
+example_ensemble_path = ensemble_paths[0]
+print(example_ensemble_path.base)
 
 # %%
-def phaseSpaceTable(basePath):
-    dictList = []
-    for root, dirs, _ in os.walk(basePath):
-        for dir in dirs:
-            if not "env" in dir:
-                continue
-            subpath = os.path.join(root, dir)
+# ensemble table generated from ensemble directory and options.csv
+ensemble_table = dataAPI.ensembleTableInfo(example_ensemble_path.base)
+print(ensemble_table)
 
-            opts = pd.read_csv(
-                os.path.join(subpath, "inputOpts.csv"), sep="\t", header=0
-            ).to_dict(orient="index")[0]
-            opts["path"] = subpath
-            dictList.append(opts)
-    return pd.DataFrame.from_dict(dictList)
+# %%
+importlib.reload(dataAPIExtensions)
+dataAPIExtensions.addMetricsColumns(ensemble_table)
+print(ensemble_table["v_fraction"])
 
-
+# %%
 def crossover_freq(N=10**6, alpha=2 / 5, beta=4):
     return N ** ((-1 + alpha) / (beta - alpha))
 
@@ -154,7 +151,7 @@ fig, ax = plt.subplots(nrows=1, figsize=(8, 8))
 ax.set(xscale="log", yscale="log")
 ax.set_ylim(10 ** (-6), 1)
 
-counter = 0 
+counter = 0
 colors = ["black", "green"]
 legend = ["Uniform Environment", "Disordered Hotspot Landscape"]
 

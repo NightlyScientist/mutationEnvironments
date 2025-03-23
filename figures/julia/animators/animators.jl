@@ -1,26 +1,23 @@
 include("../../src/base/model.jl")
 include("../common/modeling.jl")
 include("../common/theme.jl")
+include("../../src/common/settings.jl")
 
 using JLD2, CairoMakie, ColorSchemes, Colors
-using ArgParse
-import .Model: gNodes, buildMap
 import ColorSchemes: tab10, ColorScheme, berlin25
 import Colors: RGBA
-
-addArgs!(sts, name; kwargs...) = add_arg_table!(sts, "--$(name)", Dict(kwargs))
+using .SimulationSettings: Settings, Setting, parse_settings
 
 function ParseArgs()
-  sts = ArgParseSettings()
-  addArgs!(sts, "input"; required=true)
-  addArgs!(sts, "output"; required=true)
-  addArgs!(sts, "overwrite"; action=:store_true)
-  addArgs!(sts, "fps"; default=14, arg_type=Int)
-  addArgs!(sts, "lineages"; action=:store_true)
-  addArgs!(sts, "hotspots"; action=:store_true)
-  addArgs!(sts, "colors"; action=:store_true)
-  addArgs!(sts, "mutations"; action=:store_true)
-  return namedtuple(parse_args(sts))
+  sts = Settings()
+  sts.exclusive = [("standing_variation", "sv"), ("singleMutant", "sm")]
+  sts.flags = [(s, "") for s in ["rewrite", "printInfo", "colors", "lineages", "hotspots", "mutations"]]
+  sts.options = [
+    Setting(; name="input", required=true, arg_type=String),
+    Setting(; name="output", arg_type=String, required=true),
+    Setting(; name="fps", abbr="fps", arg_type=Int64, default=12)
+  ]
+  return parse_settings(sts)
 end
 
 cli = ParseArgs()

@@ -1,164 +1,49 @@
 module Model
-using StatsBase
-include("containers.jl")
-import ArgParse: ArgParseSettings, parse_args, add_arg_table!, parse_item, add_arg_group!
+using Statistics
+include("../base/containers.jl")
+include("../common/settings.jl")
+include("../base/grids.jl")
+include("initializations.jl")
 import StaticArrays: SVector
 import .HashMaps: HashVec, add!, remove!
-export simulate!, resetGraph!, parseArgs, setPath, hexGraph
+import .SimulationSettings: Setting, Settings, parse_settings, get_abbrs, print_settings, ensurePath
 
-parse_item(::Type{NTuple{3,T}}, x::AbstractString) where {T} = Tuple(convert.(T, parse.(Float64, split(x, ','))))
-
-function parseArgs()
-  addArgs!(sts, name; kwargs...) = add_arg_table!(sts, "--$(name)", Dict(kwargs))
-
-  sts = ArgParseSettings()
-  addArgs!(sts, "landscape"; required=false, arg_type=String)
-  addArgs!(sts, "env_type"; arg_type=String, default="uniform")
-  addArgs!(sts, "separation"; arg_type=Int)
-  addArgs!(sts, "gap"; arg_type=Int, default=0)
-
-  addArgs!(sts, "numberTrials"; arg_type=Int, default=1)
-  addArgs!(sts, "numberSamples"; arg_type=Int, default=50)
-
-  addArgs!(sts, "width"; required=true, arg_type=Int64)
-  addArgs!(sts, "height"; required=true, arg_type=Int64)
-  addArgs!(sts, "selection"; required=true, arg_type=Float64)
-  addArgs!(sts, "mutation"; required=true, arg_type=Float64)
-  addArgs!(sts, "intensity"; required=true, arg_type=Float64)
-  addArgs!(sts, "density"; required=false, arg_type=Float64, default=0.09)
-  addArgs!(sts, "radius"; required=false, arg_type=Int64, default=10)
-
-  addArgs!(sts, "outputPath"; required=true, arg_type=String)
-  addArgs!(sts, "animate"; action=:store_true)
-  addArgs!(sts, "rewrite"; action=:store_true)
-  addArgs!(sts, "rngSeed"; arg_type=Int, default=1)
-  addArgs!(sts, "printInfo"; action=:store_true)
-  addArgs!(sts, "detailed_analytics"; action=:store_true)
-  addArgs!(sts, "heatmap"; action=:store_true)
-  addArgs!(sts, "initial_type"; arg_type=String, default="alt")
-
-  # exclusive option groups
-  add_arg_group!(sts, "exlusive"; exclusive=true)
-  addArgs!(sts, "standing_variation"; action=:store_true)
-  addArgs!(sts, "singleMutant"; action=:store_true)
-  parsedArgs = namedtuple(parse_args(sts))
-
-  if parsedArgs.printInfo
-    println("Simulation Info:")
-    foreach(k -> println("  > $k  =>  $(parsedArgs[k])"), keys(parsedArgs))
-  end
-  return parsedArgs
+function settings_check(parsedArgs::NamedTuple)
+  parsedArgs.n_species <= 3 || error("n_species must be less than or equal to 3")
+  parsedArgs.printInfo && print_settings(parsedArgs)
 end
 
-# doc: IDs(environment condition | ancestral lineage | mutant type | mutant number)
-mutable struct Node
-  ancestor::UInt32
-  filled::Bool
-  ID_1::Int32
-  ID_2::Int32
-  ID_3::Int32
-  ID_4::UInt32
-  time::Float32
-  nbors::UInt32
-  Node(n) = new(0, false, 0, 0, 0, 0, 0.0, n)
+function simulation_settings()
+  sts = Settings()
+  sts.exclusive = [("standing_variation", "sv"), ("singleMutant", "sm")]
+  sts.flags = [("heatmap", "hm"), ("animate", "ani"), ("rewrite", ""), ("printInfo", ""), ("detailed_analytics", "da"), ("fixed_initializations", "fxinit")]
+  sts.options = [
+    Setting(; name="landscape", arg_type=String),
+    Setting(; name="env_type", abbr="ENV", arg_type=String, default="uniform"),
+    Setting(; name="separation", abbr="Sep", arg_type=Int),
+    Setting(; name="gap", abbr="gap", arg_type=Int, default=0),
+    Setting(; name="numberTrials", arg_type=Int, default=1),
+    Setting(; name="numberSamples", arg_type=Int, default=50),
+    Setting(; name="width", abbr="LX", required=true, arg_type=Int64),
+    Setting(; name="height", abbr="LY", required=true, arg_type=Int64),
+    Setting(; name="compensation", abbr="C", required=false, arg_type=Float64, default=0.0),
+    Setting(; name="selection", abbr="S", required=false, arg_type=Float64, default=0.0),
+    Setting(; name="mutation", abbr="M", required=false, arg_type=Float64, default=0.0),
+    Setting(; name="intensity", abbr="I", required=false, arg_type=Float64, default=0.0),
+    Setting(; name="density", abbr="D", required=false, arg_type=Float64, default=0.00),
+    Setting(; name="radius", abbr="R", required=false, arg_type=Int64, default=10),
+    Setting(; name="n_species", abbr="N", arg_type=Int64, default=2),
+    Setting(; name="rngSeed", abbr="RS", arg_type=Int, default=1),
+    Setting(; name="outputPath", required=true, arg_type=String),
+    Setting(; name="initial_type", abbr="IT", arg_type=String, default="alt")
+  ]
+  parsed = parse_settings(sts)
+  parsed = ensurePath(sts, parsed)
+  settings_check(parsed)
+  return parsed
 end
 
-gNodes(typ::Symbol=:hex) =
-  if typ == :hex
-    # https://www.redblobgames.com/grids/hexagons/#neighbors
-    bottom = [(1, 0), (-1, 0), (-1, -1), (0, -1), (-1, 1), (0, 1)]
-    top = [(1, 0), (-1, 0), (0, 1), (1, 1), (0, -1), (1, -1)]
-    return Dict{Int,Vector{NTuple{2,Int}}}(1 => bottom, 0 => top)
-  end
-
-graphSources(cli) = collect(1:(cli.width)) .+ cli.width * (cli.height - 1)
-
-function populate!(graph, cntns, dims, env, opts; row=1, num=3, standingVar=false)
-  active = Vector{HashVec{UInt32}}(undef, num)
-  foreach(i -> active[i] = HashVec{UInt32}(), collect(1:1:num))
-
-  if standingVar
-    if contains(opts.initial_type, "split")
-      strainID = ones(Int, dims[1])
-      strainID[cld(dims[1], 2):end] .= 2
-    elseif contains(opts.initial_type, "alt")
-      strainID = mod.(collect(1:dims[1]), 2) .+ 1
-    else
-      strainID = rand([1, 2], dims[1])
-    end
-  else
-    strainID = ones(Int, dims[1])
-  end
-
-  for col in 1:dims[1]
-    # shift group affliation to match environment
-    if strainID[col] == 1
-      nodeID = env[col] == 1 ? 1 : 2
-    else
-      nodeID = env[col] == 1 ? 3 : 4
-    end
-
-    nodeIndx = dims[1] * (row - 1) + col
-
-    graph[nodeIndx].filled = true
-    graph[nodeIndx].ID_1 = nodeID
-    graph[nodeIndx].ID_2 = col
-    graph[nodeIndx].ID_3 = strainID[col]
-
-    # don't add site to front if it already has no empty nbors
-    if graph[nodeIndx].nbors > 0
-      add!(active[nodeID], nodeIndx)
-    end
-
-    for nbor in view(cntns, :, nodeIndx)
-      nbor == 0 && continue
-
-      # subtract one from all neighbors
-      graph[nbor].nbors -= 1
-
-      # if this site, or neighbor, is surrounded, then remove it
-      if graph[nbor].nbors == 0 && graph[nbor].filled
-        remove!(active[graph[nbor].ID_1], nbor)
-      end
-    end
-  end
-  return active
-end
-
-function buildMap(dimensions, nodes, T::Type, cnstr, periodic=true)
-  lx, ly = dimensions
-  graph = Vector{T}(undef, lx * ly)
-  connections = zeros(UInt32, 6, lx * ly)
-
-  for row in 1:ly, col in 1:lx
-    nodeIndx = lx * (row - 1) + col
-    nbors::UInt32 = 0
-
-    for (i, (dx, dy)) in enumerate(nodes[row % 2])
-      ny = row + dy
-      0 < ny <= ly || continue
-
-      if periodic
-        nx = mod(col + dx, 1:lx)
-      else
-        nx = col + dx
-        0 < nx <= lx || continue
-      end
-
-      idx = lx * (ny - 1) + nx
-      connections[i, nodeIndx] = idx
-      nbors += 1
-    end
-    graph[nodeIndx] = cnstr(nbors, col, row)
-  end
-  return graph, connections
-end
-
-hexGraph(dims, periodic=true) =
-  let
-    cvr = (x, y) -> (sqrt(3) * (x - 0.5 * (y % 2)), 1 + 1.5 * (y - 1))
-    buildMap(dims, gNodes(), Node, (n, x, y) -> Node(n), periodic)
-  end
+graphFront(cli) = collect(1:(cli.width)) .+ cli.width * (cli.height - 1)
 
 @inline function nextIndex(graph, cntns, idx)
   nbors = UInt32[]
@@ -175,36 +60,41 @@ hexGraph(dims, periodic=true) =
 end
 
 function ssa(active, rates)::Tuple{Int,Float64}
-  a = length(active[1].data) * rates[1]
-  b = length(active[2].data) * rates[2]
-  c = length(active[3].data) * rates[3]
-  r = a + b + c + length(active[4].data) * rates[4]
-  η = rand() * r
+  r = zeros(Float64, length(active))
+  @inbounds for i in eachindex(active)
+    r[i] = length(active[i].data) * rates[i]
+  end
 
-  if η < a
-    return 1, r
-  elseif η < a + b
-    return 2, r
-  elseif η < a + b + c
-    return 3, r
-  else
-    return 4, r
+  acculm = accumulate(+, r)
+  η = rand() * last(acculm)
+  for i in eachindex(acculm)
+    η <= acculm[i] && return (i, rates[i])
   end
 end
 
-function simulate!(graph, cntns, cli, dataModels, env)
-  sel = cli.selection
-  intensity = cli.intensity
-  mut = cli.mutation
+# mutable struct SimulationState
+# end
 
-  rates = SVector{4,Float64}([1, 1 + intensity, 1 - sel, (1 - sel) * (1 + intensity)])
+function simulate!(graph, cntns, cli, dataModels, env, save_state)
+  (; width, height) = cli
+  (sel, intensity, mut, comp) = cli.selection, cli.intensity, cli.mutation, cli.compensation
 
-  width = cli.width
-  height = cli.height
+  #. check if env features are hard_obstacles (no growth)
+  ν = cli.intensity + 1
+  hard_obstacles = ν <= 0
+
+  if cli.n_species == 2
+    #. wild type | mutant | wild type (env) | mutant (env)
+    rates = SVector{4,Float64}([1, 1 - sel, ν, (1 - sel) * ν])
+  else
+    #. wild type | mutant | bystander | wild type (env) | mutant (env) | bystander (env)
+    rates = SVector{6,Float64}([1, 1 - sel, 1 - sel + comp, ν, ν * (1 - sel), ν * (1 - sel + comp)])
+  end
 
   time = 0.0
 
-  active = populate!(graph, cntns, (width, height), env, cli; num=4, standingVar=cli.standing_variation)
+  population_counts = zeros(Int, cli.n_species * 2)
+  active = initializePopulation!(graph, cntns, env, cli, population_counts, save_state)
 
   nrecord::Int64 = cld(width * height, cli.numberSamples)
   itrCntr::Int64 = nrecord
@@ -216,6 +106,7 @@ function simulate!(graph, cntns, cli, dataModels, env)
   # .save snapshot of the front as it touches the top
   front = Int32[]
   stopCondition = width * (height - 1) + 1
+  stop_index = width * height
 
   tExtinction = -1
 
@@ -223,11 +114,8 @@ function simulate!(graph, cntns, cli, dataModels, env)
   singleMutant = cli.singleMutant || cli.env_type == "circle"
 
   @inbounds while true
-    length(active[1].data) + length(active[2].data) + length(active[3].data) + length(active[4].data) == 0 && break
-
-    if (length(active[1].data) + length(active[2].data)) == 0 && tExtinction < 0
-      tExtinction = time
-    end
+    sum(population_counts) == 0 && break
+    sum(population_counts[1:(cli.n_species)]) == 0 && tExtinction < 0 && (tExtinction = time)
 
     if continueRecording && itrCntr == nrecord
       itrCntr = 0
@@ -248,25 +136,21 @@ function simulate!(graph, cntns, cli, dataModels, env)
     time += -log(rand()) / R
 
     # .mutate childID based on mutation rate, and increment mutations counts
-    mutID = graph[parentIdx].ID_3
-    if !singleMutant && mutID == 1 && rand() < mut
-      mutID = 2
+    strainID = graph[parentIdx].ID_3
+    if !singleMutant && strainID == 1 && rand() < mut
+      strainID = 2
       mutationCount += 1
     end
 
-    if singleMutant && willMutate && graph[parentIdx].ID_3 == 1 && (env[parentIdx] == 1 && env[childIdx] == 2)
+    if singleMutant && willMutate && strainID == 1 && (env[parentIdx] == 1 && env[childIdx] == 2)
       # .mutate once and only once when front touches the hotspot
-      mutID = 2
+      strainID = 2
       willMutate = false
       mutationCount += 1
     end
 
     # .shift group affliation to match environment
-    if mutID == 1
-      groupID = env[childIdx] == 1 ? 1 : 2
-    else
-      groupID = env[childIdx] == 1 ? 3 : 4
-    end
+    groupID = env[childIdx] == 2 ? strainID + cli.n_species : strainID
 
     # .fill new node, add to front if viable
     node = graph[childIdx]
@@ -274,88 +158,44 @@ function simulate!(graph, cntns, cli, dataModels, env)
     node.time = time
     node.ID_1 = groupID
     node.ID_2 = graph[parentIdx].ID_2
-    node.ID_3 = mutID
+    node.ID_3 = strainID
     node.ancestor = parentIdx
 
     # .keep mutation number from parent
-    if mutID == 2
+    if strainID == 2
       node.ID_4 = graph[parentIdx].ID_4 == 0 ? mutationCount : graph[parentIdx].ID_4
     end
 
-    # .don't add site to front if it already has no empty nbors
-    if node.nbors > 0
+    #. check if child is in a hard obstacle
+    good_site = (env[childIdx] == 2 && hard_obstacles) ? false : true
+
+    # .don't add site to front if it already has no empty nbors if node.nbors > 0
+    if node.nbors > 0 && good_site
       add!(active[groupID], childIdx)
+      population_counts[groupID] += 1
     end
 
     # .iterate through neighbors, updating nbor counts
-    for nbor in view(cntns, :, childIdx)
-      nbor == 0 && continue
-
-      # .subtract one from all neighbors
-      graph[nbor].nbors -= 1
-
-      # .if this site, or neighbor, is surrounded, then remove it
-      if graph[nbor].nbors == 0 && graph[nbor].filled
-        remove!(active[graph[nbor].ID_1], nbor)
-      end
-    end
+    updateNeighbors!(graph, cntns, childIdx, active, population_counts)
 
     # .stop recording data for later analysis
     if childIdx >= stopCondition && isempty(front)
-      front = vcat(active[1].data, active[2].data, active[3].data, active[4].data)
+      front = reduce(vcat, getfield.(active, :data))
       continueRecording = false
+      #cli.heatmap || break
+    end
+
+    #.terminate simulation when bystander population is extinct
+    if population_counts[cli.n_species] + population_counts[cli.n_species * 2] == 0
+      #if (length(active[3].data) + length(active[6].data)) == 0
+      if tExtinction < 0
+        tExtinction = time
+        stop_index = childIdx
+        front = reduce(vcat, getfield.(active, :data))
+      end
+      cli.heatmap || break
     end
   end
-  return (front=front, time=time, extinction=tExtinction, width=width, height=height)
+  return (front=front, time=time, extinction=tExtinction, stop_index=stop_index)
 end
-
-resetGraph!(graph, cntns) = @inbounds @simd for i in eachindex(graph)
-  graph[i].filled = false
-  graph[i].ancestor = 0
-  graph[i].ID_1 = 0
-  graph[i].ID_2 = 0
-  graph[i].ID_3 = 0
-  graph[i].ID_4 = 0
-  graph[i].time = 0.0
-  graph[i].nbors = sum(view(cntns, :, i) .> 0)
-end
-
-function setPath(cli)::String
-  opts = [
-    "env_type", "initial_type", "width", "height", "selection", "mutation", "intensity", "radius", "density", "rngSeed"
-  ]
-  opts = Symbol.(opts)
-
-  parsedOpts = []
-  for opt in opts
-    haskey(cli, Symbol(opt)) || continue
-    val = getfield(cli, Symbol(opt))
-    if eltype(val) <: Float64
-      val = round.(val, digits=3)
-    end
-    push!(parsedOpts, "$(opt)_$(val)")
-  end
-
-  # optional paramters
-  cli.gap > 0 && push!(parsedOpts, "gap_$(cli.gap)")
-  cli.env_type == "circle" && push!(parsedOpts, "sep_$(cli.separation)")
-  cli.detailed_analytics && push!(parsedOpts, "da")
-  cli.standing_variation && push!(parsedOpts, "sv")
-  cli.animate && push!(parsedOpts, "animated")
-
-  path = mkpath(cli.outputPath * "/" * join(parsedOpts, ","))
-
-  if ispath(path) && ~isempty(readdir(path))
-    if cli.rewrite
-      foreach(rm, filter(endswith(".txt"), readdir(path; join=true)))
-      foreach(rm, filter(endswith(".jld2"), readdir(path; join=true)))
-      return path
-    else
-      @info " ! output path not empty"
-      exit()
-    end
-  end
-  return path
-end
-
 end

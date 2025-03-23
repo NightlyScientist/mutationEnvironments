@@ -50,9 +50,11 @@ begin
   fig, ax = scatter(x, y)
   ax.yscale = log10
   ax.xscale = log10
-  lines!(ax, x, sqrt(2) * λ.(r, x); color=:red)
-  lines!(ax, x, λ.(r, x) * 2 * sqrt(2) / sqrt(3); color=:green)
-  errorbars!(ax, x, y, z; color=:black)
+  lines!(ax, x, 1.5 * λ.(r, x); color=:red)
+  #lines!(ax, x, sqrt(2) * λ.(r, x); color=:red)
+  lines!(ax, x, λ.(r, x); color=:blue)
+  #lines!(ax, x, λ.(r, x) * 2 * sqrt(2) / sqrt(3); color=:green)
+  #errorbars!(ax, x, y, z ./ sqrt(5); color=:black)
 
   display(fig)
   save(joinpath(img_path,"hotspotSeparation_$(opts.width)_$(opts.height)_$(opts.radius).png"), fig)

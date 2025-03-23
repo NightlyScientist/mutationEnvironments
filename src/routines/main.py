@@ -1,11 +1,15 @@
 import argparse
-from numpy import arange
 import pathlib
 import os
 import time
 import multiprocessing as mp
 import sys
 import copy
+import numpy as np
+from numpy import arange
+from pathlib import Path
+from copy import deepcopy
+
 
 class KeyboardInterruptError(Exception):
     pass
@@ -14,6 +18,10 @@ class KeyboardInterruptError(Exception):
 class Parameters:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+
+
+def to_string_list(arg):
+    return [str(i).lower() for i in arg.split(",")]
 
 
 def collectParameters(cmdinput) -> "list[Parameters]":
@@ -46,6 +54,8 @@ def runJulia(prms: Parameters):
     cmd_overwrite = "--rewrite" if prms.overwrite else ""
     cmd_standingVar = "--standing_variation" if prms.standing_variation else ""
     cmd_detailed_anal = "--detailed_analytics" if prms.detailed_analytics else ""
+    cmd_heatmap = "--heatmap" if prms.heatmap else ""
+    model_flags = " ".join([f"--{arg}" for arg in prms.model_flags])
 
     command = f"""julia --project=@. -O3 {prms.model}/main.jl \
             --numberTrials {prms.numberTrials} \
@@ -59,12 +69,15 @@ def runJulia(prms: Parameters):
             --selection {round(prms.selection, 4)} \
             --intensity {round(prms.intensity, 4)} \
             --mutation {round(prms.mutation, 4)} \
+            --compensation {round(prms.compensation, 4)} \
             --env_type {prms.env_type} \
             --separation {int(prms.separation)} \
             --initial_type {prms.initial_type} \
             {cmd_overwrite} \
             {cmd_standingVar} \
             {cmd_detailed_anal} \
+            {cmd_heatmap} \
+            {model_flags} \
             1> /dev/null
         """
     os.system(command)
@@ -100,7 +113,9 @@ def main(nworkers, params, simInfoFile):
 
 # doc: save run information to run log file, append if necessary
 def saveLogs(cmdinput) -> str:
-    options = f"start time: {time.ctime()}\n"
+    commit_hash = os.popen('git rev-parse HEAD').read().strip()
+    options = f"git branch: {get_active_branch_name()} @{commit_hash}\n"
+    options += f"start time: {time.ctime()}\n"
     options += "  + command: python " + f"{' '.join(sys.argv)}\n"
     options += "\n".join("  + {}: {}".format(k, v) for k, v in cmdinput.items())
     options += "\n\n"
@@ -114,6 +129,15 @@ def saveLogs(cmdinput) -> str:
     return simInfoFile
 
 
+def get_active_branch_name():
+    head_dir = Path(".") / ".git" / "HEAD"
+    with head_dir.open("r") as f:
+        content = f.read().splitlines()
+    for line in content:
+        if line[0:4] == "ref:":
+            return line.partition("refs/heads/")[2]
+
+
 # doc: parse cmd input generate
 def parseCmds(args):
     cmdinput = vars(args)
@@ -125,6 +149,7 @@ def parseCmds(args):
         f"XY:{int(pc.dims[0])},{int(pc.dims[1])}",
         f"nENV:{int(pc.environments)}",
         f"s:{round(pc.selection, 3) if type(pc.selection) != str else pc.selection}",
+        f"c:{round(pc.compensation, 3) if type(pc.compensation) != str else pc.compensation}",
         f"m:{round(pc.mutation, 3) if type(pc.mutation) != str else pc.mutation}",
         f"v:{round(pc.intensity, 2) if type(pc.intensity) != str else pc.intensity}",
         f"d:{round(pc.density, 3) if type(pc.density) != str else pc.density}",
@@ -133,6 +158,10 @@ def parseCmds(args):
         f"trials:{int(pc.numberTrials)}",
     ]
 
+    # add names from model_flags
+    if len(args.model_flags) > 0:
+        names += [arg.replace("=", ":") for arg in args.model_flags]
+
     if args.env_type != "uniform":
         names.append(f"EV:{args.env_type}")
     if args.standing_variation:
@@ -140,6 +169,8 @@ def parseCmds(args):
         names.append("sv")
     if args.detailed_analytics:
         names.append("da")
+    if args.heatmap:
+        names.append("hm")
 
     # .update parameter dictionary with new savepath
     cmdinput["savepath"] = f"{args.savepath}/" + "_".join(names)
@@ -162,9 +193,11 @@ parser.add_argument("--env_type", type=str, default="uniform")
 parser.add_argument("--initial_type", type=str, default="alt")
 parser.add_argument("--standing_variation", action="store_true")
 parser.add_argument("--detailed_analytics", action="store_true")
+parser.add_argument("--heatmap", action="store_true")
 
 parser.add_argument("--mutation", required=True, type=float)
 parser.add_argument("--selection", required=True, type=float)
+parser.add_argument("--compensation", required=False, type=float, default=0.0)
 parser.add_argument("--intensity", required=True, type=float)
 parser.add_argument("--radius", type=int, default=10)
 parser.add_argument("--density", type=float, default=0.09)
@@ -176,6 +209,7 @@ parser.add_argument("--num_threads", type=int, default=10)
 parser.add_argument("--background", action="store_true")
 
 parser.add_argument("--model", type=str, default="src/base/")
+parser.add_argument("--model_flags", type=to_string_list, default=[])
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -183,7 +217,7 @@ if __name__ == "__main__":
     simInfoFile = saveLogs(cmdinput)
 
     if not args.background:
-        print(f"do you wish to proceed?")
+        print("do you wish to proceed?")
         proceed = input("[y/N]: ")
 
         if proceed.lower() == "n":
