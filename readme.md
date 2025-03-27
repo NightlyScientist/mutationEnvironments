@@ -1,3 +1,4 @@
+Public Repository for the associated publication, “Geometry-Induced Competitive Release in a Meta-Population Model of Range Expansions in Disordered Environments", Jimmy Gonzalez Nuñez and Daniel A. Beller, Journal of the Royal Society Interface (2025). 
 
 # Code Execution
 
